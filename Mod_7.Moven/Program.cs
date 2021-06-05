@@ -20,8 +20,8 @@ namespace Mod_7.Moven
 		player,		// игрок
 		rock,			// камень
 		stump,		// пень
-		apple,		// яблоня
-		pear,			// груша
+		apple,      // яблоня
+		cherry,		// вишня
 		wolf,			// волк
 		bear			// медведь
 	}
@@ -182,6 +182,53 @@ namespace Mod_7.Moven
 	}
 
 	//-----------------------------------------------------------------------------
+	abstract class Tree : Entity  // дерево, оно генерирует периодически плоды, сожержащие жизненность
+	{
+		private protected int nutrient_max;  // максимальный уровень питательности плода, при его достижении рост прекращается
+		private protected int nutrient;      // текущий уровень питательности плода
+		internal virtual int Nutrient
+		{
+			set
+			{
+				nutrient = SetMinMax(0, value, nutrient_max);
+			}
+			get { return nutrient; }
+		}
+		internal Tree() : base()
+		{
+			nutrient_max = 255;
+			Nutrient = 0;
+		}
+
+		internal Tree(int x, int y, int nutrient_max) : base(x, y)
+		{
+			this.nutrient_max = nutrient_max;
+			Nutrient = 0;
+		}
+		internal Tree(Location xy, int nutrient_max) : base(xy)
+		{
+			this.nutrient_max = nutrient_max;
+			Nutrient = 0;
+		}
+
+		// Tree.IncreaseNutrient() - счётчик уровеня питательности, как станет > nutrient_max, так перестанет расти (действие сеттера)
+		internal virtual void IncreaseNutrient()
+		{
+			Nutrient++;
+		}
+
+		// Tree.Nyam() - кто-то съел плод со всей его питательностью
+		internal virtual int GetNyam()
+		{
+			Hide();
+			int plod = Nutrient;
+			Nutrient = 0;
+			Show();
+			return plod; 
+		}
+	}
+
+	//-----------------------------------------------------------------------------
 	abstract class Creature : Entity // некая тварь, которая может поворачиваться и перемещаться по полю
 	{
 		private protected int time_max;	// время, необходимое для совершения перемещения на 1 клетку поля
@@ -205,7 +252,7 @@ namespace Mod_7.Moven
 		internal Creature() : base()
 		{
 			time_max = 1;
-			time = 0;
+			Time = 0;
 			dir = Direction.west;
 		}
 
@@ -330,6 +377,10 @@ namespace Mod_7.Moven
 			}
 			DecreaseTime();
 		}
+
+		// Creature.Action() - реализация логики действий твари
+		internal virtual void Action()
+		{ }
 	}
 
 	//-----------------------------------------------------------------------------
@@ -392,8 +443,8 @@ namespace Mod_7.Moven
 			DecreaseTime();
 		}
 
-		// Predator.Action() - реализация логики действий хищника по поиску жертвы
-		internal virtual void Action()
+		// Predator.Action() - реализация логики действий хищника
+		internal override void Action()
 		{
 			bool is_find;
 			Location xy = GetLocInDirection(Dir);
@@ -419,7 +470,50 @@ namespace Mod_7.Moven
 			}
 			if (is_find == false) { Move(); }
 		}
+	}
 
+	//=============================================================================
+	abstract class Apple : Tree  // яблоня, она генерирует периодически яблоки, сожержащие жизненность
+	{
+
+		internal Apple() : base()
+		{ }
+
+		internal Apple(int x, int y, int nutrient_max) : base(x, y, nutrient_max)
+		{ }
+		internal Apple(Location xy, int nutrient_max) : base(xy, nutrient_max)
+		{ }
+
+		// Apple.Iam() - сообщает, что это яблоня
+		internal override Entitys Iam() { return Entitys.apple; }
+
+		// Apple.Show() - отображает яблоню на поле
+		internal override void Show() { }
+
+		// Apple.Hide() - скрывает яблоню на поле (она становится невидимым, но продолжает ещё существовать в памяти)
+		internal override void Hide() { }
+	}
+
+	//=============================================================================
+	abstract class Cherry : Tree  // вишня, она генерирует периодически вишенки, сожержащие жизненность
+	{
+
+		internal Cherry() : base()
+		{ }
+
+		internal Cherry(int x, int y, int nutrient_max) : base(x, y, nutrient_max)
+		{ }
+		internal Cherry(Location xy, int nutrient_max) : base(xy, nutrient_max)
+		{ }
+
+		// Cherry.Iam() - сообщает, что это вишня
+		internal override Entitys Iam() { return Entitys.cherry; }
+
+		// Cherry.Show() - отображает вишню на поле
+		internal override void Show() { }
+
+		// Cherry.Hide() - скрывает вишню на поле (она становится невидимым, но продолжает ещё существовать в памяти)
+		internal override void Hide() { }
 	}
 
 	//=============================================================================
@@ -439,7 +533,7 @@ namespace Mod_7.Moven
 
 		internal Player() : base()
 		{
-			vital_max = 2;
+			vital_max = 255;
 			vital = vital_max;
 		}
 
@@ -462,7 +556,10 @@ namespace Mod_7.Moven
 			{
 				Location xy = GetLocInDirection(Dir);
 				if (Field.IsFreeLocation(xy))
-					{ JumpTo(xy); }  // перемещаемся
+					{
+					JumpTo(xy);				// перемещаемся
+					Vital -= time_max;   // тратим жизненные силы
+				}  // перемещаемся
 			}
 			DecreaseTime();
 		}
@@ -471,7 +568,7 @@ namespace Mod_7.Moven
 		internal virtual void Control()
 		{
 			// по управляющим клавишам назначается Direction new_dir и выполнятеся Rotate(new_dir);
-			// и где-то должен вызываться метод Move(), но вот где... ?
+			// и где-то должен вызываться метод Move(), но вот где... ? в Action() ???
 
 		}
 
@@ -480,11 +577,19 @@ namespace Mod_7.Moven
 		{
 			Location xy = GetLocInDirection(Dir);
 			Entitys ent = Field.WhoInLocation(xy);
-			if (ent == Entitys.apple || ent == Entitys.pear)
+			if (ent == Entitys.apple || ent == Entitys.cherry)
 			{
-				Vital = Vital + 1; // заменить 1 на возвращаемое деревом количество жизненности
-				// и как-то должна у дерева сняться эта жизненность, как определить у какого, ссылки ведь на него нет...
+				Vital = Vital + 1; // заменить 1 на возвращаемое деревом количество жизненности GetNyam();
+										 // и как-то должна у дерева сняться эта жизненность, как определить у какого, ссылки ведь на него нет...
 			}
+		}
+
+		// Player.Action() - реализация действий игрока
+		internal override void Action()
+		{
+			//Search();
+			//Control();
+			//Move();
 		}
 	}
 
@@ -542,6 +647,29 @@ namespace Mod_7.Moven
 
 		// Rock.Show() - отображает камень на поле
 		internal override void Show() { }
+
+		// Rock.Hide() - скрывает камень на поле (он становится невидимым, но продолжает ещё существовать)
+		internal override void Hide() { }
+	}
+
+	//=============================================================================
+
+	class Stump : Entity  // пень
+	{
+		internal Stump(int x, int y) : base(x, y)
+		{ }
+
+		internal Stump(Location xy) : base(xy)
+		{ }
+
+		// Stump.Iam() - сообщает, что это пень
+		internal override Entitys Iam() { return Entitys.stump; }
+
+		// Stump.Show() - отображает пень на поле
+		internal override void Show() { }
+
+		// Stump.Hide() - скрывает пень на поле (он становится невидимым, но продолжает ещё существовать)
+		internal override void Hide() { }
 	}
 
 	class Program
