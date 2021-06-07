@@ -1,20 +1,48 @@
 ﻿using System;
 
 namespace Mod_7.Moven
+/*
+Программа имитирует "жизнь", где существуют и взаимодействуют следующие сущности:
+	- на поле размещены препятствия (камни и пни, просто лежат и всем мешают ходить);
+	- на поле размещены деревья (яблони и вишни), которые плодоносят;
+	- по полю ходит игрок (тратит при этом жизненные силы) и собирает яблоки и вишню (пополняя жизненные силы);
+	- по полю хаотично бродят волки и ведмеди, которые если набредут на игрока, то съедят его (на этом конец игрового процесса);
+	- мир в игре замкнут, т.е. при попытке какой-нибудь твари выйти за пределы поля она окажется с его противоположной стороны.
+
+Программа пока не функциональна по нескольким причинам:
+	- не написан код методов отрисовывающих графику (я пока не знаю, как задействовать функционал графического экрана (а не текстового экрана консоли));
+	- не написан код управления игроком (я не знаю, как считывать нажатия клавиш стрелочек не останавливая игру в ожидании нажатия какой-нибудь клавиши).
+
+Взаимодействие сущностей производится через посредника, которым является игровое поле, которое не только отображает себя в виде ячеек, 
+но и содержит в себе в качестве статических элементов все определённые в игре сущности. Для упрощения кода размеры массивов из сущностей заданы статично,
+но при желании можно будет задавать динамически перед началом игры, написав дополнительно код случайного размещения сущностей в пределах поля.
+
+Примечание: в коде я создал индексацию массива деревьев в классе Поле, но по факту её в дальнейшем не использовал, обошёлся без неё.	
+*/
+
 {
-	// Location - месторасположение
+	// Location - месторасположение на поле (в его системе координат)
 	struct Location
 	{
 		Location(int x, int y) { X = x; Y = y; }
 		internal int X { set; get; }
 
 		internal int Y { set; get; }
+
+		public static bool operator == (Location a, Location b)
+		{
+			return (a.X == b.X) && (a.Y == b.Y);
+		}
+		public static bool operator != (Location a, Location b)
+		{
+			return !(a.X == b.X && a.Y == b.Y);
+		}
 	}
 
 	//-----------------------------------------------------------------------------
 
-	// Entitys - перечисление возможных сущностей, размещаемых на поле
-	enum Entitys : byte
+	// ID_Entity - перечисление возможных сущностей, размещаемых на поле
+	enum ID_Entity : byte
 	{
 		none = 0,   // ничего, никто
 		player,		// игрок
@@ -28,8 +56,8 @@ namespace Mod_7.Moven
 
 	//-----------------------------------------------------------------------------
 
-	// Direction - возможные направления перемещения по полю
-	enum Direction : byte
+	// ID_Direct - возможные направления перемещения по полю
+	enum ID_Direct : byte
 	{
 		west = 0,   // на Запад,	X+
 		north,      // на Север,	Y+
@@ -39,15 +67,59 @@ namespace Mod_7.Moven
 
 	//-----------------------------------------------------------------------------
 
-	// Field - игровое поле с размерами Width (0...x_max) и Height (0...y_max)
-	class Field
+	class Field // Field - игровое поле с размерами Width (0...x_max) и Height (0...y_max)
 	{
 		private static int width;
 		private static int height;
 		private static int x_max;
 		private static int y_max;
 
-		private static Entitys[, ] array_entitys = new Entitys[width, height];
+		private static ID_Entity[ , ] arr_ent_loc = new ID_Entity[width, height];
+
+		internal static Entity[] entities = new Entity[]
+		{
+			new Rock (18,  3),
+			new Stump( 3, 18)
+		};
+
+		internal static Player player = new Player(10, 10, 16, ID_Direct.west, 256);
+
+		internal static Predator[] predators = new Predator[]
+		{
+			new Wolf( 0,  0,  8, ID_Direct.north, 8),
+			new Bear(16, 16, 24, ID_Direct.east,  8)
+	   };
+
+		private static Tree[] trees = new Tree[]
+		{
+			new Apple ( 5, 12, 255),
+		   new Cherry(12,  5, 127)
+		};
+		public Tree this[Location xy]
+		{
+			get
+			{
+				// Проходим по всему массиву в поисках дерева с такими координатами
+				for (int i = 0; i < trees.Length; i++)
+				{
+					if (trees[i].Loc == xy)
+					{
+						return trees[i];	// Возвращаем такое дерево
+					}
+				}
+
+				return null;				// Нет в массиве дерева с такими координатами
+			}
+		}
+
+		internal static int GetVital(Location xy)
+		{
+			for (int i = 0; i < trees.Length; i++)
+			{
+				if (trees[i].Loc == xy) { return trees[i].GetNyam(); }
+			}
+			return 0;
+		}
 
 		internal static int Width 
 		{
@@ -76,81 +148,108 @@ namespace Mod_7.Moven
 			{
 				for (int y = 0; y <= Y_max; y++)
 				{
-					Memory(x, y, Entitys.none);
+					Memory(x, y, ID_Entity.none);
 				}
 			}
 		}
 
 		// Field.Memory(x, y, ent) - запоминает что за нечто в ячейке поля (локации)
-		internal static void Memory(int x, int y, Entitys ent)
+		internal static void Memory(int x, int y, ID_Entity ent)
 		{
-			array_entitys[x, y] = ent;
+			arr_ent_loc[x, y] = ent;
 		}
 
 		// Field.Memory(xy, ent) - запоминает что за нечто в ячейке поля (локации)
-		internal static void Memory(Location xy, Entitys ent)
+		internal static void Memory(Location xy, ID_Entity ent)
 		{
-			array_entitys[xy.X, xy.Y] = ent;
+			arr_ent_loc[xy.X, xy.Y] = ent;
 		}
 
 		// Field.Forget(x, y) - забывает что за нечто было в ячейке поля (локации)
 		internal static void Forget(int x, int y)
 		{
-			array_entitys[x, y] = Entitys.none;
+			arr_ent_loc[x, y] = ID_Entity.none;
 		}
 
 		// Field.Forget(xy) - забывает что за нечто было в ячейке поля (локации)
 		internal static void Forget(Location xy)
 		{
-			array_entitys[xy.X, xy.Y] = Entitys.none;
+			arr_ent_loc[xy.X, xy.Y] = ID_Entity.none;
 		}
 
 		// Field.IsFreeLocation(x, y) - возвращает true если ячейка поля (локация) свободна
 		internal static bool IsFreeLocation(int x, int y)
 		{
-			return array_entitys[x, y] == Entitys.none;
+			return arr_ent_loc[x, y] == ID_Entity.none;
 		}
 
 		// Field.IsFreeLocation(xy) - возвращает true если ячейка поля (локация) свободна
 		internal static bool IsFreeLocation(Location xy)
 		{
-			return array_entitys[xy.X, xy.Y] == Entitys.none;
+			return arr_ent_loc[xy.X, xy.Y] == ID_Entity.none;
 		}
 
-		// Field.WhoInLocation(x, y) - возвращает Entitys из заданной ячейки поля (локации)
-		internal static Entitys WhoInLocation(int x, int y)
+		// Field.WhoInLocation(x, y) - возвращает ID_Entity из заданной ячейки поля (локации)
+		internal static ID_Entity WhoInLocation(int x, int y)
 		{
-			return array_entitys[x, y];
+			return arr_ent_loc[x, y];
 		}
 
-		// Field.WhoInLocation(xy) - возвращает Entitys из заданной ячейки поля (локации)
-		internal static Entitys WhoInLocation(Location xy)
+		// Field.WhoInLocation(xy) - возвращает ID_Entity из заданной ячейки поля (локации)
+		internal static ID_Entity WhoInLocation(Location xy)
 		{
-			return array_entitys[xy.X, xy.Y];
+			return arr_ent_loc[xy.X, xy.Y];
+		}
+
+		// Field.Show - отображает (отрисовывает) поле (точечки по углам ячеек) и всех сущностей
+		internal static void Show()
+		{
+			//тут должен быть код отрисовки поля (точечками по углам ячеек)
+
+			for (int i = 0; i < entities.Length; i++) { entities[i].Show();}
+
+			for (int i = 0; i < trees.Length; i++) { trees[i].Show(); }
+
+			player.Show();
+
+			for (int i = 0; i < predators.Length; i++) { predators[i].Show();}
+		}
+
+		// Field.Action - действия всех участников на поле (кроме камней и пней, которые просто лежат)
+		internal static void Action()
+		{
+			for (int i = 0; i < trees.Length; i++)
+			{
+				trees[i].IncreaseNutrient();
+			}
+			player.Action();
+			for (int i = 0; i < predators.Length; i++)
+			{
+				predators[i].Action();
+			}
 		}
 
 	}
 
 	//-----------------------------------------------------------------------------
-	abstract class Entity // нечто, находящееся на поле в локации loc
+	abstract class Entity   // нечто, находящееся на поле в локации Loc
 	{
-		private protected Location loc;
+		internal Location Loc { set; get; }
 
 		internal Entity()
 		{
-			Field.Memory(loc, Iam());
+			Field.Memory(Loc, Iam());
 		}
 		internal Entity(int x, int y)
 		{
-			loc.X = x;
-			loc.Y = y;
-			Field.Memory(loc, Iam());
+			Loc = new Location { X = x, Y = y }; ;
+			Field.Memory(Loc, Iam());
 		}
 
 		internal Entity(Location xy)
 		{
-			loc = xy;
-			Field.Memory(loc, Iam());
+			Loc = xy;
+			Field.Memory(xy, Iam());
 		}
 		internal static int SetMinMax(int min, int num, int max)
 		{
@@ -165,19 +264,19 @@ namespace Mod_7.Moven
 		}
 
 		// Entity.Iam() - сообщает, что это оно такое
-		internal virtual Entitys Iam() { return Entitys.none; }
+		internal virtual ID_Entity Iam() { return ID_Entity.none; }
 
 		// Entity.Show() - отображает нечто на поле
 		internal virtual void Show() { }
 
-		// Entity.Hide() - скрывает нечто на поле (оно становится невидимым, но продолжает ещё существовать)
+		// Entity.Hide() - скрывает нечто на поле (оно становится невидимым, но продолжает ещё существовать в памяти)
 		internal virtual void Hide() { }
 
 		// Entity.Done() - "удаляет" нечто с поля (оно становится невидимым, стирается из памяти поля)
 		internal virtual void Done()
 		{
 			Hide();
-			Field.Forget(loc);
+			Field.Forget(Loc);
 		}
 	}
 
@@ -233,7 +332,7 @@ namespace Mod_7.Moven
 	{
 		private protected int time_max;	// время, необходимое для совершения перемещения на 1 клетку поля
 		private protected int time;      // счётчик времени, которое осталось до появления возможности переместиться
-		private protected Direction dir; // направление ориентации твари, в этом направлении и может переместиться
+		private protected ID_Direct dir; // направление ориентации твари, в этом направлении и может переместиться
 
 		internal virtual int Time			// контролируем диапазон времени
 		{
@@ -247,22 +346,22 @@ namespace Mod_7.Moven
 			get { return time; }
 		}
 
-		internal virtual Direction Dir { set; get; } // тварь может быть ориентирована в любую сторону
+		internal virtual ID_Direct Dir { set; get; } // тварь может быть ориентирована в любую сторону
 
 		internal Creature() : base()
 		{
 			time_max = 1;
 			Time = 0;
-			dir = Direction.west;
+			dir = ID_Direct.west;
 		}
 
-		internal Creature(int x, int y, int time_max, Direction dir ) : base(x, y)
+		internal Creature(int x, int y, int time_max, ID_Direct dir ) : base(x, y)
 		{
 			this.time_max = time_max;
 			Time = 0;
 			this.dir = dir;
 		}
-		internal Creature(Location xy, int time_max, Direction dir) : base(xy)
+		internal Creature(Location xy, int time_max, ID_Direct dir) : base(xy)
 		{
 			this.time_max = time_max;
 			Time = 0;
@@ -276,25 +375,25 @@ namespace Mod_7.Moven
 		}
 
 		// Creature.GetDirLeft() - возвращает направление влево от текущего
-		internal virtual Direction GetDirLeft()
+		internal virtual ID_Direct GetDirLeft()
 		{
-			int i_dir = (int)Dir;
+			short i_dir = (short)Dir;
 			i_dir++;
 			if (i_dir > 3) { i_dir = 0; }
-			return (Direction)i_dir;
+			return (ID_Direct)i_dir;
 		}
 
 		// Creature.GetDirRight() - возвращает направление вправо от текущего
-		internal virtual Direction GetDirRight()
+		internal virtual ID_Direct GetDirRight()
 		{
-			int i_dir = (int)Dir;
+			short i_dir = (short)Dir;
 			i_dir--;
 			if (i_dir < 0) { i_dir = 3; }
-			return (Direction)i_dir;
+			return (ID_Direct)i_dir;
 		}
 
 		// Creature.Rotate(new_dir) - тварь ориентируется в новое направление (поворачивается)
-		internal virtual void Rotate(Direction new_dir)
+		internal virtual void Rotate(ID_Direct new_dir)
 		{
 			Hide();
 			Dir = new_dir;
@@ -311,26 +410,26 @@ namespace Mod_7.Moven
 		}
 
 		// Creature.GetLocInDirection(in_dir) - возвращает соседнюю локацию в заданном направлении
-		internal virtual Location GetLocInDirection(Direction in_dir)
+		internal virtual Location GetLocInDirection(ID_Direct in_dir)
 		{
 			Location xy = new Location();
 			switch (in_dir)
 			{
-				case Direction.west:
-					xy.X = loc.X + 1;
-					xy.Y = loc.Y;
+				case ID_Direct.west:
+					xy.X = Loc.X + 1;
+					xy.Y = Loc.Y;
 					break;
-				case Direction.north:
-					xy.X = loc.X;
-					xy.Y = loc.Y + 1;
+				case ID_Direct.north:
+					xy.X = Loc.X;
+					xy.Y = Loc.Y + 1;
 					break;
-				case Direction.east:
-					xy.X = loc.X - 1;
-					xy.Y = loc.Y;
+				case ID_Direct.east:
+					xy.X = Loc.X - 1;
+					xy.Y = Loc.Y;
 					break;
-				default: // Direction.south:
-					xy.X = loc.X;
-					xy.Y = loc.Y - 1;
+				default: // ID_Direct.south:
+					xy.X = Loc.X;
+					xy.Y = Loc.Y - 1;
 					break;
 			}
 			// нормализует локацию - если выскочили за край поля, то появляемся с противоположной стороны
@@ -349,18 +448,17 @@ namespace Mod_7.Moven
 		// Creature.JumpTo(xy) - перескок в заданную локацию, если вылетаем за край поля, то появляемся с противоположной стороны
 		internal virtual void JumpTo(Location xy)
 		{
-			Field.Forget(loc);
+			Field.Forget(Loc);
 			Hide();
-			loc = xy;
+			Loc = xy;
 			Show();
-			Field.Memory(loc, Iam());
+			Field.Memory(Loc, Iam());
 		}
 
 		// Creature.JumpTo( x, y) - вариант перескока в заданную локацию по координатам
 		internal virtual void JumpTo(int x, int y)
 		{
-			Location xy = new Location { X = x, Y = y };
-			JumpTo(xy);
+			JumpTo(new Location { X = x, Y = y });
 		}
 
 		// Creature.Move() - если время подошло, то совершаем перемещение в соседнюю локацию в текущем направлении
@@ -384,7 +482,6 @@ namespace Mod_7.Moven
 	}
 
 	//-----------------------------------------------------------------------------
-
 	abstract class Predator : Creature // хищник
 	{
 		private protected int path_max;	// максимальное расстояние, которое проходит хищник до смены направления движения
@@ -398,13 +495,13 @@ namespace Mod_7.Moven
 			path = path_max;
 		}
 
-		internal Predator(int x, int y, int time_max, Direction dir, int path_max) : base(x, y, time_max, dir)
+		internal Predator(int x, int y, int time_max, ID_Direct dir, int path_max) : base(x, y, time_max, dir)
 		{
 			this.path_max = path_max;
 			path = path_max;
 		}
 
-		internal Predator(Location xy, int time_max, Direction dir, int path_max) : base(xy, time_max, dir)
+		internal Predator(Location xy, int time_max, ID_Direct dir, int path_max) : base(xy, time_max, dir)
 		{
 			this.path_max = path_max;
 			path = path_max;
@@ -448,24 +545,26 @@ namespace Mod_7.Moven
 		{
 			bool is_find;
 			Location xy = GetLocInDirection(Dir);
-			if (is_find = (Field.WhoInLocation(xy) == Entitys.player))
-			{ }   // съедает игрока, ссылку на которого надо как-то найти
+			if (is_find = (Field.WhoInLocation(xy) == ID_Entity.player))
+			{ Field.player.Done(); }	// съедает игрока
 			else
 			{
-				Direction inspect_dir = GetDirLeft();
+				ID_Direct inspect_dir = GetDirLeft();
 				xy = GetLocInDirection(inspect_dir);
-				if (is_find = (Field.WhoInLocation(xy) == Entitys.player))
+				if (is_find = (Field.WhoInLocation(xy) == ID_Entity.player))
 				{
 					Rotate(inspect_dir);
-				}   // съедает игрока
+					Field.player.Done();	// съедает игрока
+				}
 				else
 				{
 					inspect_dir = GetDirRight();
 					xy = GetLocInDirection(inspect_dir);
-					if (is_find = (Field.WhoInLocation(xy) == Entitys.player))
+					if (is_find = (Field.WhoInLocation(xy) == ID_Entity.player))
 					{
 						Rotate(inspect_dir);
-					}   // съедает игрока
+						Field.player.Done();	// съедает игрока
+					}
 				}
 			}
 			if (is_find == false) { Move(); }
@@ -473,7 +572,7 @@ namespace Mod_7.Moven
 	}
 
 	//=============================================================================
-	abstract class Apple : Tree  // яблоня, она генерирует периодически яблоки, сожержащие жизненность
+	class Apple : Tree  // яблоня, она генерирует периодически яблоки, сожержащие жизненность
 	{
 
 		internal Apple() : base()
@@ -485,7 +584,7 @@ namespace Mod_7.Moven
 		{ }
 
 		// Apple.Iam() - сообщает, что это яблоня
-		internal override Entitys Iam() { return Entitys.apple; }
+		internal override ID_Entity Iam() { return ID_Entity.apple; }
 
 		// Apple.Show() - отображает яблоню на поле
 		internal override void Show() { }
@@ -495,7 +594,7 @@ namespace Mod_7.Moven
 	}
 
 	//=============================================================================
-	abstract class Cherry : Tree  // вишня, она генерирует периодически вишенки, сожержащие жизненность
+	class Cherry : Tree  // вишня, она генерирует периодически вишенки, сожержащие жизненность
 	{
 
 		internal Cherry() : base()
@@ -507,7 +606,7 @@ namespace Mod_7.Moven
 		{ }
 
 		// Cherry.Iam() - сообщает, что это вишня
-		internal override Entitys Iam() { return Entitys.cherry; }
+		internal override ID_Entity Iam() { return ID_Entity.cherry; }
 
 		// Cherry.Show() - отображает вишню на поле
 		internal override void Show() { }
@@ -537,13 +636,13 @@ namespace Mod_7.Moven
 			vital = vital_max;
 		}
 
-		internal Player(int x, int y, int time_max, Direction dir, int vital_max) : base(x, y, time_max, dir)
+		internal Player(int x, int y, int time_max, ID_Direct dir, int vital_max) : base(x, y, time_max, dir)
 		{
 			this.vital_max = vital_max;
 			vital = vital_max;
 		}
 
-		internal Player(Location xy, int time_max, Direction dir, int vital_max) : base(xy, time_max, dir)
+		internal Player(Location xy, int time_max, ID_Direct dir, int vital_max) : base(xy, time_max, dir)
 		{
 			this.vital_max = vital_max;
 			vital = vital_max;
@@ -552,13 +651,13 @@ namespace Mod_7.Moven
 		// Player.Move() - перемещение игрока
 		internal override void Move()
 		{
-			if (Time == 0)
+			if ((Time == 0) && (Vital > 0))
 			{
 				Location xy = GetLocInDirection(Dir);
 				if (Field.IsFreeLocation(xy))
 					{
 					JumpTo(xy);				// перемещаемся
-					Vital -= time_max;   // тратим жизненные силы
+					Vital -= time_max;	// тратим жизненные силы
 				}  // перемещаемся
 			}
 			DecreaseTime();
@@ -567,7 +666,7 @@ namespace Mod_7.Moven
 		// Player.Control() - управление направлением перемещения игрока
 		internal virtual void Control()
 		{
-			// по управляющим клавишам назначается Direction new_dir и выполнятеся Rotate(new_dir);
+			// по управляющим клавишам назначается ID_Direct new_dir и выполнятеся Rotate(new_dir);
 			// и где-то должен вызываться метод Move(), но вот где... ? в Action() ???
 
 		}
@@ -576,64 +675,67 @@ namespace Mod_7.Moven
 		internal virtual void Search()
 		{
 			Location xy = GetLocInDirection(Dir);
-			Entitys ent = Field.WhoInLocation(xy);
-			if (ent == Entitys.apple || ent == Entitys.cherry)
+			ID_Entity ent = Field.WhoInLocation(xy);
+			if (ent == ID_Entity.apple || ent == ID_Entity.cherry)
 			{
-				Vital = Vital + 1; // заменить 1 на возвращаемое деревом количество жизненности GetNyam();
-										 // и как-то должна у дерева сняться эта жизненность, как определить у какого, ссылки ведь на него нет...
+				Vital += Field.GetVital(xy);
 			}
 		}
 
 		// Player.Action() - реализация действий игрока
 		internal override void Action()
 		{
-			//Search();
-			//Control();
-			//Move();
+			Search();
+			Control();
+			Move();
+		}
+		internal override void Done()
+		{
+			Vital = 0;
+			Hide();
+			Field.Forget(Loc);
 		}
 	}
 
 	//=============================================================================
-
 	class Wolf : Predator // волк
 	{
-		internal Wolf(int x, int y, int time_max, Direction dir, int path_max) : base(x, y, time_max, dir, path_max)
+		internal Wolf(int x, int y, int time_max, ID_Direct dir, int path_max) : base(x, y, time_max, dir, path_max)
 		{ }
 
-		internal Wolf(Location xy, int time_max, Direction dir, int path_max) : base(xy, time_max, dir, path_max)
+		internal Wolf(Location xy, int time_max, ID_Direct dir, int path_max) : base(xy, time_max, dir, path_max)
 		{ }
 
 		// Wolf.Iam() - сообщает, что это волк
-		internal override Entitys Iam() { return Entitys.wolf; }
+		internal override ID_Entity Iam() { return ID_Entity.wolf; }
 
 		// Wolf.Show() - отображает волка на поле
 		internal override void Show() { }
 
-		// Wolf.Hide() - скрывает волка на поле (он становится невидимым, но продолжает ещё существовать)
+		// Wolf.Hide() - скрывает волка на поле (он становится невидимым, но продолжает ещё существовать в памяти)
 		internal override void Hide() { }
 	}
 
 	//=============================================================================
 	class Bear : Predator // ведмедь
 	{
-		internal Bear(int x, int y, int time_max, Direction dir, int path_max) : base(x, y, time_max, dir, path_max)
+		internal Bear(int x, int y, int time_max, ID_Direct dir, int path_max) : base(x, y, time_max, dir, path_max)
 		{ }
 
-		internal Bear(Location xy, int time_max, Direction dir, int path_max) : base(xy, time_max, dir, path_max)
+		internal Bear(Location xy, int time_max, ID_Direct dir, int path_max) : base(xy, time_max, dir, path_max)
 		{ }
 
 		// Bear.Iam() - сообщает, что это волк
-		internal override Entitys Iam() { return Entitys.bear; }
+		internal override ID_Entity Iam() { return ID_Entity.bear; }
 
 		// Bear.Show() - отображает волка на поле
 		internal override void Show() { }
 
-		// Bear.Hide() - скрывает волка на поле (он становится невидимым, но продолжает ещё существовать)
+		// Bear.Hide() - скрывает волка на поле (он становится невидимым, но продолжает ещё существовать в памяти)
 		internal override void Hide() { }
 	}
 
 	//=============================================================================
-
 	class Rock : Entity	// камень
 	{
 		internal Rock(int x, int y) : base(x, y)
@@ -643,17 +745,16 @@ namespace Mod_7.Moven
 		{ }
 
 		// Rock.Iam() - сообщает, что это камень
-		internal override Entitys Iam() { return Entitys.rock; }
+		internal override ID_Entity Iam() { return ID_Entity.rock; }
 
 		// Rock.Show() - отображает камень на поле
 		internal override void Show() { }
 
-		// Rock.Hide() - скрывает камень на поле (он становится невидимым, но продолжает ещё существовать)
+		// Rock.Hide() - скрывает камень на поле (он становится невидимым, но продолжает ещё существовать в памяти)
 		internal override void Hide() { }
 	}
 
 	//=============================================================================
-
 	class Stump : Entity  // пень
 	{
 		internal Stump(int x, int y) : base(x, y)
@@ -663,20 +764,23 @@ namespace Mod_7.Moven
 		{ }
 
 		// Stump.Iam() - сообщает, что это пень
-		internal override Entitys Iam() { return Entitys.stump; }
+		internal override ID_Entity Iam() { return ID_Entity.stump; }
 
 		// Stump.Show() - отображает пень на поле
 		internal override void Show() { }
 
-		// Stump.Hide() - скрывает пень на поле (он становится невидимым, но продолжает ещё существовать)
+		// Stump.Hide() - скрывает пень на поле (он становится невидимым, но продолжает ещё существовать в памяти)
 		internal override void Hide() { }
 	}
 
+	//=============================================================================
 	class Program
 	{
 		static void Main(string[] args)
 		{
-			Console.WriteLine("Hello World!");
+			Field.Show();
+			do { Field.Action(); } while (Field.player.Vital > 0);
+			Console.WriteLine("Game over!");
 		}
 	}
 }
